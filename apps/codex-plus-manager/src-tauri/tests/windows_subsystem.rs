@@ -41,6 +41,16 @@ fn manager_repeated_launch_activates_existing_window() {
 }
 
 #[test]
+fn manager_main_window_reuses_window_created_by_tauri_config() {
+    let lib_rs = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+        .expect("read manager lib.rs");
+
+    assert!(lib_rs.contains("app.get_webview_window(MAIN_WINDOW_LABEL)"));
+    assert!(lib_rs.contains("register_main_window_events(window)"));
+    assert!(lib_rs.contains("build_main_window(app.handle(), url, !start_minimized)"));
+}
+
+#[test]
 fn manager_main_window_uses_default_window_icon_explicitly() {
     let lib_rs = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
         .expect("read manager lib.rs");

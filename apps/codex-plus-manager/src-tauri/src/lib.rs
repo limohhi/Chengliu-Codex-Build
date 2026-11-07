@@ -272,7 +272,14 @@ pub fn run() {
                 MAIN_WINDOW_URL
             };
             lightweight::install_ready_listener(app.handle());
-            build_main_window(app.handle(), url, !start_minimized)?;
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                if start_minimized {
+                    let _ = window.hide();
+                }
+                register_main_window_events(window);
+            } else {
+                build_main_window(app.handle(), url, !start_minimized)?;
+            }
             install_tray(app)?;
             gateway_commands::set_app_handle(app.handle().clone());
             // Codex 钩子的分发条目里写的是程序绝对路径：程序换了位置（更新、换安装目录）后
