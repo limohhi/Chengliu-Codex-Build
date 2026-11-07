@@ -1,0 +1,90 @@
+name: Chengliu desktop builds
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build
+        required: true
+        default: main
+        type: string
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Archive corresponding source
+        run: git archive --format=zip --output=Chengliu-CodexPlusPlus-source.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chengliu-codex-source
+          path: Chengliu-CodexPlusPlus-source.zip
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+      - name: Build
+        shell: pwsh
+        run: |
+          cd apps/codex-plus-manager
+          npm ci
+          npm run build -- --config src-tauri/tauri.chengliu.windows.conf.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chengliu-codex-windows
+          path: target/release/bundle/nsis/*.exe
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: |
+          cd apps/codex-plus-manager
+          npm ci
+          npm run build -- --config src-tauri/tauri.chengliu.macos.conf.json
+      - name: Package DMG
+        run: |
+          set -euo pipefail
+          APP=$(find target/release/bundle/macos -maxdepth 1 -name '*.app' -print -quit)
+          test -n "$APP"
+          VERSION=$(node -p "require('./apps/codex-plus-manager/package.json').version")
+          hdiutil create -volname "澄流 Codex++" -srcfolder "$APP" -ov -format UDZO "dist-Chengliu-CodexPlusPlus-${VERSION}-macos.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chengliu-codex-macos
+          path: dist-Chengliu-CodexPlusPlus-*-macos.dmg
+  summary:
+    if: always()
+    needs: [source, windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report artifact status
+        run: |
+          {
+            echo '## Chengliu Codex++ build'
+            echo
+            echo '| Artifact | Job status |'
+            echo '|---|---|'
+            echo '| AGPL corresponding source | ${{ needs.source.result }} |'
+            echo '| Windows x64 installer | ${{ needs.windows.result }} |'
+            echo '| macOS DMG (unsigned) | ${{ needs.macos.result }} |'
+            echo
+            echo 'Download artifacts from this workflow run. macOS is unsigned and may be blocked by Gatekeeper.'
+          } >> "$GITHUB_STEP_SUMMARY"
