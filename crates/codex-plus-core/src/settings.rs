@@ -4250,7 +4250,9 @@ mod tests {
         assert!(settings.codex_extra_args.is_empty());
         assert_eq!(settings.relay_base_url, default_relay_base_url());
         assert!(settings.relay_api_key.is_empty());
-        assert_eq!(settings.relay_profiles[0].relay_mode, RelayMode::Official);
+        assert_eq!(settings.relay_profiles[0].relay_mode, RelayMode::PureApi);
+        assert_eq!(settings.relay_profiles[0].name, "澄流平台");
+        assert_eq!(settings.relay_profiles[0].base_url, CHENGLIU_API_BASE_URL);
         assert!(settings.relay_common_config_contents.is_empty());
         assert_eq!(settings.relay_test_model, default_relay_test_model());
         assert!(!settings.codex_app_stepwise_enabled);
