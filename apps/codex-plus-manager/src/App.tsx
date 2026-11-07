@@ -1583,7 +1583,7 @@ const defaultSettings: BackendSettings = {
   usageHistoryEnabled: false,
   codexAppProxyRequestStatus: true,
   codexAppPasteFix: false,
-  codexAppForceChineseLocale: false,
+  codexAppForceChineseLocale: true,
   codexAppThreadIdBadge: false,
   codexAppConversationView: false,
   codexAppThreadScrollRestore: true,

@@ -50,7 +50,7 @@ const demoSettings = {
   codexAppUsageStatusLine: true,
   codexAppProxyRequestStatus: true,
   codexAppPasteFix: false,
-  codexAppForceChineseLocale: false,
+  codexAppForceChineseLocale: true,
   codexAppThreadIdBadge: false,
   codexAppConversationView: false,
   codexAppThreadScrollRestore: true,

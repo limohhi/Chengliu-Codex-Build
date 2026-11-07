@@ -1193,9 +1193,8 @@ pub struct BackendSettings {
     pub computer_use_pip: bool,
     #[serde(rename = "codexAppPasteFix", default)]
     pub codex_app_paste_fix: bool,
-    // 默认关闭：撤下的那版会主动从 settings.json 删掉这个键，老用户升级后读不到，
-    // 若默认开启等于替他们重新打开一个从没同意过的行为。要开请显式勾选。
-    #[serde(rename = "codexAppForceChineseLocale", default)]
+    // 新安装及没有该字段的旧配置默认启用简体中文；用户显式保存的 false 保持不变。
+    #[serde(rename = "codexAppForceChineseLocale", default = "default_true")]
     pub codex_app_force_chinese_locale: bool,
     #[serde(
         rename = "codexAppTypingEffect",
@@ -1523,7 +1522,7 @@ impl Default for BackendSettings {
             computer_use_mode: default_computer_use_mode(),
             computer_use_pip: true,
             codex_app_paste_fix: false,
-            codex_app_force_chinese_locale: false,
+            codex_app_force_chinese_locale: true,
             codex_app_typing_effect: default_typing_effect(),
             codex_app_thread_id_badge: false,
             codex_app_conversation_view: false,
@@ -4136,7 +4135,7 @@ mod tests {
         assert!(settings.relay_profiles_enabled);
         assert!(settings.enhancements_enabled);
         assert!(settings.codex_app_plugin_marketplace_unlock);
-        assert!(!settings.codex_app_force_chinese_locale);
+        assert!(settings.codex_app_force_chinese_locale);
         assert!(!settings.codex_app_thread_id_badge);
         assert!(!settings.codex_goals_enabled);
         assert!(settings.codex_app_path.is_empty());

@@ -54,16 +54,16 @@ fn updates_discard_retired_fields_and_preserve_other_settings() {
 }
 
 #[test]
-fn force_chinese_locale_defaults_to_false() {
+fn force_chinese_locale_defaults_to_true() {
     let settings = BackendSettings::default();
-    assert!(!settings.codex_app_force_chinese_locale);
+    assert!(settings.codex_app_force_chinese_locale);
 
     let json = serde_json::to_value(&settings).expect("serialize default settings");
     assert_eq!(
         json.get("codexAppForceChineseLocale")
             .and_then(|v| v.as_bool()),
-        Some(false),
-        "default BackendSettings JSON should include codexAppForceChineseLocale = false"
+        Some(true),
+        "default BackendSettings JSON should include codexAppForceChineseLocale = true"
     );
     assert!(
         json.get("codexAppFastStartup").is_none(),
@@ -72,7 +72,7 @@ fn force_chinese_locale_defaults_to_false() {
 }
 
 #[test]
-fn force_chinese_locale_missing_from_old_json_defaults_to_false() {
+fn force_chinese_locale_missing_from_old_json_defaults_to_true() {
     let json = serde_json::json!({
         "codexAppPath": "",
         "enhancementsEnabled": true,
@@ -81,8 +81,8 @@ fn force_chinese_locale_missing_from_old_json_defaults_to_false() {
     let parsed: BackendSettings = serde_json::from_value(json)
         .expect("old settings JSON without codexAppForceChineseLocale should still load");
     assert!(
-        !parsed.codex_app_force_chinese_locale,
-        "用户从没勾过这个开关，升级后不该被替他们打开"
+        parsed.codex_app_force_chinese_locale,
+        "缺少语言偏好时默认使用简体中文"
     );
 }
 
