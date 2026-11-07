@@ -17,7 +17,9 @@ test('portal window has no native desktop capabilities', () => {
     assert.equal(capability.remote, undefined);
   }
   const command = read(src + 'src-tauri/src/commands.rs');
-  const begin = command.indexOf('pub fn open_chengliu_portal(');
+  assert.ok(command.includes('use tauri::{Emitter, Manager};'));
+  const begin = command.indexOf('pub async fn open_chengliu_portal(');
+  assert.ok(begin > 0, 'WebView creation must run from an async command');
   const end = command.indexOf('pub fn open_external_url(', begin);
   const portal = command.slice(begin, end);
   assert.ok(portal.includes('https://api.chengliu-api.top/portal/'));

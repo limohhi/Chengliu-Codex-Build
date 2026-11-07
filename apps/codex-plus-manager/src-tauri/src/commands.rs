@@ -16,7 +16,7 @@ use codex_plus_core::status::{LaunchStatus, StatusStore};
 use codex_plus_core::user_scripts::UserScriptManager;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use crate::install::{self, InstallActionResult};
 
@@ -7863,7 +7863,7 @@ fn persist_repo_skill_cache(cache: &RepoSkillEntries) {
 }
 
 #[tauri::command]
-pub fn open_chengliu_portal(app: tauri::AppHandle) -> CommandResult<Value> {
+pub async fn open_chengliu_portal(app: tauri::AppHandle) -> CommandResult<Value> {
     const PORTAL_URL: &str = "https://api.chengliu-api.top/portal/";
     if let Some(window) = app.get_webview_window("chengliu-portal") {
         let _ = window.set_focus();
