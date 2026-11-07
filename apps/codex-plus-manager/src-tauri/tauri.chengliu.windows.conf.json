@@ -3,5 +3,5 @@
   "productName": "澄流 Codex++",
   "identifier": "top.chengliu.codexplusplus",
   "bundle": { "active": true, "targets": ["nsis"] },
-  "app": { "windows": [{ "label": "main", "title": "澄流 Codex++" }] }
+  "app": { "windows": [{ "create": false, "label": "main", "title": "澄流 Codex++" }] }
 }
