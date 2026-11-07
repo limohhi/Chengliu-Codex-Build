@@ -42,7 +42,8 @@ jobs:
           npm run check
           node --test ../../scripts/tests/chengliu-desktop-config.test.cjs ../../scripts/tests/chengliu-login.test.cjs
       - name: Test settings persistence and migration
-        run: cargo test -p codex-plus-core --lib settings::tests:: -- --test-threads=1
+        run: |
+          cargo test -p codex-plus-core --lib settings::tests:: -- --test-threads=1
       - name: Build
         shell: pwsh
         run: |
@@ -70,7 +71,8 @@ jobs:
           npm run check
           node --test ../../scripts/tests/chengliu-desktop-config.test.cjs ../../scripts/tests/chengliu-login.test.cjs
       - name: Test settings persistence and migration
-        run: cargo test -p codex-plus-core --lib settings::tests:: -- --test-threads=1
+        run: |
+          cargo test -p codex-plus-core --lib settings::tests:: -- --test-threads=1
       - name: Build
         run: |
           cd apps/codex-plus-manager
