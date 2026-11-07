@@ -77,7 +77,7 @@ test("language switches notify React without reload or storing drafts", () => {
         let p: ts.Node | undefined = node.parent; let lazy = false;
         while (p && !ts.isSourceFile(p)) { if (ts.isFunctionLike(p)) { lazy = true; break; } p = p.parent; }
         // 默认供应商名称是配置数据，保持创建时快照；导航/提示标签才需动态翻译。
-        const defaultName = node.arguments[0] && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === "默认中转";
+        const defaultName = node.arguments[0] && ts.isStringLiteral(node.arguments[0]) && ["默认中转", "澄流平台"].includes(node.arguments[0].text);
         if (name === "App.tsx" && defaultName) assert.ok(ts.isPropertyAssignment(node.parent), "配置名称不能变成动态 getter");
         const dataSnapshot = name === "App.tsx" && ts.isPropertyAssignment(node.parent)
           && node.parent.name.getText(file) === "name" && defaultName;

@@ -7863,6 +7863,28 @@ fn persist_repo_skill_cache(cache: &RepoSkillEntries) {
 }
 
 #[tauri::command]
+pub fn open_chengliu_portal(app: tauri::AppHandle) -> CommandResult<Value> {
+    const PORTAL_URL: &str = "https://api.chengliu-api.top/portal/";
+    if let Some(window) = app.get_webview_window("chengliu-portal") {
+        let _ = window.set_focus();
+        return ok("已打开澄流平台登录页。", json!({ "url": PORTAL_URL }));
+    }
+    match tauri::WebviewWindowBuilder::new(
+        &app,
+        "chengliu-portal",
+        tauri::WebviewUrl::External(PORTAL_URL.parse().expect("valid portal URL")),
+    )
+    .title("澄流平台登录")
+    .inner_size(1080.0, 760.0)
+    .min_inner_size(720.0, 560.0)
+    .build()
+    {
+        Ok(_) => ok("已打开澄流平台登录页。", json!({ "url": PORTAL_URL })),
+        Err(error) => failed(&format!("打开澄流平台登录页失败：{error}"), json!({})),
+    }
+}
+
+#[tauri::command]
 pub fn open_external_url(url: String) -> CommandResult<Value> {
     let trimmed = url.trim();
     if !(trimmed.starts_with("https://") || trimmed.starts_with("http://")) {

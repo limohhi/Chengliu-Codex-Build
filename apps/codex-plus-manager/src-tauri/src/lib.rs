@@ -548,6 +548,7 @@ pub fn run() {
             commands::upsert_skill_repo,
             commands::inspect_skill_repo,
             commands::delete_skill_repo,
+            commands::open_chengliu_portal,
             commands::open_external_url,
             commands::repair_shortcuts,
             commands::check_update,

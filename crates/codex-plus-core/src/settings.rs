@@ -684,18 +684,6 @@ impl Default for DreamSkinThemeConfig {
                 "image".to_string(),
                 Value::String("portal-hero.png".to_string()),
             );
-            extra_fields.insert(
-                "promoTitle".to_string(),
-                Value::String("感谢 Passion8 赞助".to_string()),
-            );
-            extra_fields.insert(
-                "promoSub".to_string(),
-                Value::String("passion8.cc".to_string()),
-            );
-            extra_fields.insert(
-                "promoUrl".to_string(),
-                Value::String("https://passion8.cc/register?aff=TuPe".to_string()),
-            );
         }
         Self {
             schema_version: default_dream_skin_schema_version(),
@@ -1618,8 +1606,7 @@ impl BackendSettings {
 
     pub fn active_relay_profile(&self) -> RelayProfile {
         if self.active_relay_id == default_active_relay_id()
-            && self.relay_profiles.len() == 1
-            && self.relay_profiles[0] == RelayProfile::default()
+            && is_default_single_profile(&self.relay_profiles)
             && (!self.relay_api_key.is_empty() || self.relay_base_url != default_relay_base_url())
         {
             return RelayProfile {
@@ -2185,8 +2172,24 @@ pub fn clamp_helper_max_request_body_mib(value: u32) -> u32 {
     )
 }
 
+const CHENGLIU_API_BASE_URL: &str = "https://api.chengliu-api.top/v1";
+
+fn chengliu_default_relay_profile() -> RelayProfile {
+    let mut profile = RelayProfile {
+        name: "澄流平台".to_string(),
+        base_url: CHENGLIU_API_BASE_URL.to_string(),
+        upstream_base_url: CHENGLIU_API_BASE_URL.to_string(),
+        relay_mode: RelayMode::PureApi,
+        ..RelayProfile::default()
+    };
+    // API 地址必须进入持久化快照；base_url 本身带 skip_serializing。
+    crate::relay_config::normalize_relay_profile_for_storage(&mut profile)
+        .expect("valid built-in Chengliu API profile");
+    profile
+}
+
 pub fn default_relay_profiles() -> Vec<RelayProfile> {
-    vec![RelayProfile::default()]
+    vec![chengliu_default_relay_profile()]
 }
 
 /// 判断一份供应商列表是否退化成了「仅剩默认 profile」。
@@ -2194,7 +2197,9 @@ pub fn default_relay_profiles() -> Vec<RelayProfile> {
 /// 这是 `load` 失败后退回默认设置、再被原样回写磁盘的典型形态。
 /// `RelayProfile::default()` 的 id 固定为 `default`，用户手工创建的条目不会长这样。
 pub fn is_default_single_profile(profiles: &[RelayProfile]) -> bool {
-    profiles.len() == 1 && profiles[0] == RelayProfile::default()
+    profiles.len() == 1
+        && (profiles[0] == RelayProfile::default()
+            || profiles[0] == chengliu_default_relay_profile())
 }
 
 pub fn default_aggregate_member_weight() -> u32 {
@@ -3656,6 +3661,15 @@ fn normalize_settings_config_sections(mut settings: BackendSettings) -> BackendS
         &crate::relay_config::normalize_config_text(&context),
     );
     for profile in &mut settings.relay_profiles {
+        if profile.name.eq_ignore_ascii_case("FastAiApi")
+        {
+            // 换平台不能继承旧认证/请求头/配置快照。保留 ID 以维持外部绑定，
+            // 但以新名称避免下次加载再次迁移、抹掉用户新填的澄流 Key。
+            *profile = RelayProfile {
+                id: profile.id.clone(),
+                ..chengliu_default_relay_profile()
+            };
+        }
         let mut normalized = profile.clone();
         if crate::relay_config::normalize_relay_profile_for_storage(&mut normalized).is_ok() {
             *profile = normalized;
@@ -3947,6 +3961,100 @@ fn temp_path_for(path: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn chengliu_default_survives_store_round_trip_without_changing_generic_template() {
+        assert_eq!(RelayProfile::default().relay_mode, RelayMode::Official);
+        assert!(default_relay_base_url().is_empty());
+        let dir = tempfile::tempdir().unwrap();
+        let store = SettingsStore::new(dir.path().join("settings.json"));
+        let settings = BackendSettings::default();
+        assert!(is_default_single_profile(&settings.relay_profiles));
+        store.save(&settings).unwrap();
+        let loaded = store.load().unwrap();
+        let profile = loaded.active_relay_profile();
+        assert_eq!(profile.name, "澄流平台");
+        assert_eq!(profile.relay_mode, RelayMode::PureApi);
+        assert_eq!(profile.protocol, RelayProtocol::Responses);
+        assert_eq!(profile.base_url, CHENGLIU_API_BASE_URL);
+        assert_eq!(profile.upstream_base_url, CHENGLIU_API_BASE_URL);
+        assert!(profile.config_contents.contains(CHENGLIU_API_BASE_URL));
+        assert!(crate::relay_config::relay_profile_api_key(&profile).is_empty());
+    }
+
+    #[test]
+    fn chengliu_fast_migration_clears_snapshots_and_keeps_new_key_on_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        // Isolated synthetic fixture; no real credentials or account records.
+        let legacy = json!({
+            "activeRelayId": "fastaiapi",
+            "relayProfiles": [{
+                "id": "fastaiapi", "name": "FastAiApi", "relayMode": "pureApi",
+                "upstreamBaseUrl": "https://old.invalid/v1",
+                "apiKeys": [{"id":"old", "name":"Old", "apiKey":"synthetic-old-key"}],
+                "activeApiKeyId": "old",
+                "configContents": "model_provider = \"custom\"\n[model_providers.custom]\nname = \"Old\"\nbase_url = \"https://old.invalid/v1\"\nwire_api = \"responses\"\nexperimental_bearer_token = \"synthetic-old-key\"\n",
+                "authContents": "{\"OPENAI_API_KEY\":\"synthetic-old-key\"}",
+                "customHeaders": [{"key":"Authorization", "value":"synthetic-old-key"}]
+            }]
+        });
+        std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let store = SettingsStore::new(path);
+        let mut loaded = store.load().unwrap();
+        let profile = &mut loaded.relay_profiles[0];
+        assert_eq!(profile.id, "fastaiapi");
+        assert_eq!(profile.name, "澄流平台");
+        assert_eq!(profile.base_url, CHENGLIU_API_BASE_URL);
+        assert_eq!(profile.relay_mode, RelayMode::PureApi);
+        assert!(profile.custom_headers.is_empty());
+        assert!(profile.auth_contents.is_empty());
+        assert!(!profile.config_contents.contains("synthetic-old-key"));
+        assert!(!profile.config_contents.contains("old.invalid"));
+        assert!(crate::relay_config::relay_profile_api_key(profile).is_empty());
+        profile.api_keys = vec![RelayApiKey {
+            id: "new".to_string(), name: "New".to_string(), api_key: "synthetic-new-key".to_string(),
+        }];
+        profile.active_api_key_id = "new".to_string();
+        store.save(&loaded).unwrap();
+        let mut second = store.load().unwrap();
+        assert_eq!(second.active_relay_id, "fastaiapi");
+        assert_eq!(crate::relay_config::relay_profile_api_key(&second.relay_profiles[0]), "synthetic-new-key");
+        second.relay_profiles[0].name = "My Chengliu".to_string();
+        store.save(&second).unwrap();
+        let third = store.load().unwrap();
+        assert_eq!(third.relay_profiles[0].name, "My Chengliu");
+        assert_eq!(crate::relay_config::relay_profile_api_key(&third.relay_profiles[0]), "synthetic-new-key");
+    }
+
+    #[test]
+    fn fast_ai_api_profile_migrates_to_chengliu_without_old_credentials() {
+        let mut settings = BackendSettings::default();
+        let mut profile = RelayProfile::default();
+        profile.id = "fastaiapi".to_string();
+        profile.name = "FastAiApi".to_string();
+        profile.base_url = "https://fast.example/v1".to_string();
+        profile.api_key = "old-fast-key".to_string();
+        profile.api_keys = vec![RelayApiKey {
+            id: "old-key-id".to_string(),
+            name: "Old Fast key".to_string(),
+            api_key: "old-fast-key".to_string(),
+        }];
+        profile.active_api_key_id = "old-key-id".to_string();
+        settings.relay_profiles = vec![profile];
+        settings.active_relay_id = "fastaiapi".to_string();
+
+        let migrated = normalize_settings_config_sections(settings);
+        let profile = &migrated.relay_profiles[0];
+        assert_eq!(profile.id, "fastaiapi");
+        assert_eq!(profile.name, "澄流平台");
+        assert_eq!(profile.base_url, "https://api.chengliu-api.top/v1");
+        assert_eq!(profile.protocol, RelayProtocol::Responses);
+        assert!(profile.api_key.is_empty());
+        assert!(profile.api_keys.is_empty());
+        assert!(profile.active_api_key_id.is_empty());
+        assert_eq!(migrated.active_relay_id, "fastaiapi");
+    }
 
     #[test]
     fn settings_weixin_outbound_revision_ignores_defaults_and_unrelated_saves() {

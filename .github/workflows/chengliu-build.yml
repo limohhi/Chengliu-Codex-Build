@@ -34,6 +34,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install NSIS
         run: choco install nsis -y --no-progress
+      - name: Check Chengliu frontend and window contracts
+        shell: pwsh
+        run: |
+          cd apps/codex-plus-manager
+          npm ci
+          npm run check
+          node --test ../../scripts/tests/chengliu-desktop-config.test.cjs ../../scripts/tests/chengliu-login.test.cjs
+      - name: Test settings persistence and migration
+        run: cargo test -p codex-plus-core --lib settings::tests:: -- --test-threads=1
       - name: Build
         shell: pwsh
         run: |
@@ -54,10 +63,17 @@ jobs:
         with:
           node-version: '22'
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build
+      - name: Check Chengliu frontend and window contracts
         run: |
           cd apps/codex-plus-manager
           npm ci
+          npm run check
+          node --test ../../scripts/tests/chengliu-desktop-config.test.cjs ../../scripts/tests/chengliu-login.test.cjs
+      - name: Test settings persistence and migration
+        run: cargo test -p codex-plus-core --lib settings::tests:: -- --test-threads=1
+      - name: Build
+        run: |
+          cd apps/codex-plus-manager
           npm run build -- --config src-tauri/tauri.chengliu.macos.conf.json
       - name: Package DMG
         run: |
