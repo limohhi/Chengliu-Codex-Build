@@ -1,0 +1,279 @@
+/* 首次使用引导。挂在 body 下（不在 .shell 里），主题类名在 <html> 上，颜色变量照常可用。 */
+.tour-root {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+}
+
+/* 目标高亮：一圈超大阴影压暗其余区域，目标本身保持原样，外加一道强调色描边。 */
+.tour-spotlight {
+  position: fixed;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 2px hsl(var(--brand-accent)),
+    0 0 0 9999px rgb(0 0 0 / 0.58);
+  pointer-events: none;
+  transition: left 0.22s ease, top 0.22s ease, width 0.22s ease, height 0.22s ease;
+}
+
+.tour-dim {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.58);
+}
+
+.tour-card {
+  box-sizing: border-box;
+  position: fixed;
+  width: min(320px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 16px 16px 14px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.35);
+  transition: left 0.22s ease, top 0.22s ease;
+}
+
+.tour-card[data-centered="true"] {
+  width: min(380px, calc(100vw - 24px));
+}
+
+.tour-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+}
+
+.tour-close:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.tour-step {
+  color: hsl(var(--brand-accent));
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tour-card h3 {
+  margin: 4px 0 6px;
+  padding-right: 24px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.tour-card p {
+  margin: 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.tour-dots {
+  display: flex;
+  gap: 5px;
+  margin: 14px 0 12px;
+}
+
+.tour-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(var(--border));
+  transition: width 0.2s ease, background-color 0.2s ease;
+}
+
+.tour-dots i[data-active="true"] {
+  width: 16px;
+  border-radius: 3px;
+  background: hsl(var(--brand-accent));
+}
+
+.tour-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tour-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.tour-ghost {
+  border: 1px solid hsl(var(--border));
+  background: transparent;
+  color: hsl(var(--foreground));
+}
+
+.tour-ghost:hover {
+  background: hsl(var(--accent));
+}
+
+.tour-primary {
+  border: 0;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.tour-primary:hover {
+  filter: brightness(1.08);
+}
+
+.tour-actions button:disabled,
+.agent-focus-option:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.tour-actions button:focus-visible,
+.tour-close:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spotlight,
+  .tour-card,
+  .tour-dots i {
+    transition: none;
+  }
+}
+
+/* 「你用哪些 Agent」问卷：和引导共用卡片样式，选项是一列可勾选的行。 */
+.tour-card.agent-focus-card {
+  top: 50%;
+  left: 50%;
+  width: min(440px, calc(100vw - 24px));
+  transform: translate(-50%, -50%);
+}
+
+.tour-actions.agent-focus-actions {
+  justify-content: flex-end;
+}
+
+.tour-card p.agent-focus-warning {
+  margin: -4px 0 14px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: hsl(var(--warning, 38 92% 50%) / 0.12);
+  color: hsl(var(--foreground));
+  font-size: 11.5px;
+}
+
+.agent-focus-status {
+  margin: 0 0 12px;
+}
+
+.agent-focus-status p {
+  margin: 0 0 8px;
+}
+
+.tour-card p[role="alert"] {
+  color: hsl(var(--destructive));
+}
+
+.agent-focus-list {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.agent-focus-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-focus-option:hover {
+  background: hsl(var(--accent));
+}
+
+.agent-focus-option[data-checked="true"] {
+  border-color: hsl(var(--brand-accent));
+}
+
+.agent-focus-option:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.agent-focus-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+}
+
+.agent-focus-icon .hub-agent-glyph {
+  width: 18px;
+  height: 18px;
+}
+
+.agent-focus-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-focus-text strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.agent-focus-text small {
+  color: hsl(var(--muted-foreground));
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.agent-focus-check {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 50%;
+}
+
+.agent-focus-option[data-checked="true"] .agent-focus-check {
+  border-color: hsl(var(--brand-accent));
+  background: hsl(var(--brand-accent));
+  color: hsl(var(--primary-foreground));
+}
