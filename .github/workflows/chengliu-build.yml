@@ -32,8 +32,31 @@ jobs:
         with:
           node-version: '22'
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install NSIS
-        run: choco install nsis -y --no-progress
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Resolve default Tauri NSIS cache
+        shell: pwsh
+        run: |
+          "NSIS_CACHE_DIR=$env:LOCALAPPDATA\tauri\NSIS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Restore official Tauri NSIS toolset
+        id: nsis-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.NSIS_CACHE_DIR }}
+          key: nsis-${{ runner.os }}-3.11-utils-0.5.3-${{ hashFiles('scripts/prefetch-nsis.py') }}
+      - name: Prefetch and verify official Tauri NSIS toolset
+        timeout-minutes: 6
+        shell: pwsh
+        run: |
+          python scripts/prefetch-nsis.py --cache-dir "$env:NSIS_CACHE_DIR"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Save verified official Tauri NSIS toolset
+        if: steps.nsis-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.NSIS_CACHE_DIR }}
+          key: nsis-${{ runner.os }}-3.11-utils-0.5.3-${{ hashFiles('scripts/prefetch-nsis.py') }}
       - name: Check Chengliu frontend and window contracts
         shell: pwsh
         run: |
