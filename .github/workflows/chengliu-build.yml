@@ -44,6 +44,7 @@ jobs:
       - name: Test settings persistence and migration
         run: |
           cargo test -p codex-plus-core --lib settings::tests:: -- --test-threads=1
+          cargo test -p codex-plus-manager --lib desktop_pairing::tests -- --test-threads=1
       - name: Build
         shell: pwsh
         run: |
@@ -73,6 +74,7 @@ jobs:
       - name: Test settings persistence and migration
         run: |
           cargo test -p codex-plus-core --lib settings::tests:: -- --test-threads=1
+          cargo test -p codex-plus-manager --lib desktop_pairing::tests -- --test-threads=1
       - name: Build
         run: |
           cd apps/codex-plus-manager

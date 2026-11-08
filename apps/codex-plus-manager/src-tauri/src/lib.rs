@@ -4,6 +4,7 @@ mod agent_launch_commands;
 mod agent_mcp_commands;
 mod auto_takeover;
 pub mod commands;
+pub mod desktop_pairing;
 mod computer_use_commands;
 mod cu_pip;
 mod dsh_plugin_commands;
@@ -264,6 +265,7 @@ pub fn run() {
     let start_codex_at_login = autostart && codex_plus_core::watcher::watcher_start_codex();
     let start_codex_on_open = !autostart && codex_plus_core::watcher::watcher_start_codex_on_open();
     let app_result = tauri::Builder::default()
+        .manage(desktop_pairing::DesktopPairingState::default())
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
             let url = if show_update {
@@ -549,6 +551,9 @@ pub fn run() {
             commands::inspect_skill_repo,
             commands::delete_skill_repo,
             commands::open_chengliu_portal,
+            desktop_pairing::desktop_pair_start,
+            desktop_pairing::desktop_pair_poll,
+            desktop_pairing::desktop_pair_cancel,
             commands::open_external_url,
             commands::repair_shortcuts,
             commands::check_update,

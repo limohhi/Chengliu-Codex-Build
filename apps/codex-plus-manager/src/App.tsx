@@ -168,7 +168,7 @@ import { TOUR_STORAGE_KEY, TOUR_VERSION } from "./onboarding-model";
 import "./ToolPages.css";
 import { BACKEND_SETTINGS_CHANGED_EVENT, ComputerUsePage } from "./ComputerUsePage";
 import { PluginMarketScreen } from "./PluginMarketScreen";
-import { ChengliuLoginScreen, markChengliuLoginComplete, shouldShowChengliuLogin } from "./ChengliuLoginScreen";
+import { ChengliuLoginScreen, shouldShowChengliuLogin } from "./ChengliuLoginScreen";
 import { defaultMarketSort, parseMarketTime, relativeAge, sortMarketScripts, type LocalScriptState, type ScriptMarketSort } from "./script-market-model";
 import { extensionEnabledForHost, extensionsForHost, extensionStateForHost, type ExtensionHost } from "./extension-host-model";
 import { ReleaseNotes } from "./ReleaseNotes";
@@ -5292,11 +5292,7 @@ export function App() {
           {route === "pluginMarket" ? <PluginMarketScreen /> : null}
           {route === "chengliuLogin" ? (
             <ChengliuLoginScreen
-              onLogin={() => void call<CommandResult<Record<string, unknown>>>("open_chengliu_portal").then((result) => showResultNotice(t("澄流平台登录"), result, { silentSuccess: true })).catch((error) => showNotice(t("澄流平台登录"), stringifyError(error), "failed"))}
-              onContinue={() => {
-                try { markChengliuLoginComplete(window.localStorage); } catch { /* continue for restricted storage */ }
-                setRoute("home");
-              }}
+              onContinue={() => setRoute("home")}
             />
           ) : null}
           {route === "home" ? (
