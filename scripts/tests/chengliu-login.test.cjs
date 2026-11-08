@@ -32,10 +32,15 @@ test('login screen ships a local logo, layout and honest credential guidance', (
   assert.ok(screen.includes('new URL("./assets/codex-plus-logo.png", import.meta.url)'));
   assert.ok(!screen.includes('/logo.svg'));
   assert.ok(screen.includes('import "./ChengliuLoginScreen.css"'));
-  assert.ok(screen.includes('网页登录不会自动配置桌面 API 密钥'));
+  assert.ok(screen.includes('桌面 API 密钥'));
+  assert.ok(screen.includes('密钥不会传入界面'));
   const css = read(src + 'src/ChengliuLoginScreen.css');
   assert.ok(css.includes('.chengliu-login-panel'));
   const app = read(src + 'src/App.tsx');
-  assert.ok(app.includes('>("open_chengliu_portal")'));
+  assert.ok(app.includes('<ChengliuLoginScreen'));
+  const pairing = read(src + 'src-tauri/src/desktop_pairing.rs');
+  for (const command of ['desktop_pair_start', 'desktop_pair_poll', 'desktop_pair_cancel']) assert.ok(pairing.includes(command));
+  assert.ok(pairing.includes('https://api.chengliu-api.top/desktop/pairings'));
+  assert.ok(pairing.includes('https://api.chengliu-api.top/desktop/pairings'));
   assert.ok(app.includes('agentFocusOpen && route !== "chengliuLogin"'));
 });

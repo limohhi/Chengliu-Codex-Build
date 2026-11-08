@@ -6,3 +6,7 @@
 .chengliu-login-panel .chengliu-login-action, .chengliu-login-panel .chengliu-continue-action { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 44px; }
 .chengliu-login-panel svg { width: 18px; height: 18px; flex: none; }
 .chengliu-login-note { font-size: 12px; }
+.chengliu-pair-code { width: 100%; padding: 14px 10px; border: 1px solid hsl(var(--border)); border-radius: 6px; font: 700 28px/1.2 ui-monospace, monospace; letter-spacing: 0; user-select: all; }
+.chengliu-waiting { display: inline-flex; align-items: center; gap: 8px; color: hsl(var(--muted-foreground)); }
+.chengliu-waiting svg { animation: chengliu-spin 1s linear infinite; }
+@keyframes chengliu-spin { to { transform: rotate(360deg); } }
