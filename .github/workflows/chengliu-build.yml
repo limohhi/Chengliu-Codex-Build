@@ -75,6 +75,8 @@ jobs:
         with:
           node-version: '22'
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
       - name: Check Chengliu frontend and window contracts
         run: |
           cd apps/codex-plus-manager
@@ -90,18 +92,18 @@ jobs:
       - name: Build
         run: |
           cd apps/codex-plus-manager
-          npm run build -- --config src-tauri/tauri.chengliu.macos.conf.json
+          npm run build -- --target aarch64-apple-darwin --config src-tauri/tauri.chengliu.macos.conf.json
       - name: Package DMG
         run: |
           set -euo pipefail
-          APP=$(find target/release/bundle/macos -maxdepth 1 -name '*.app' -print -quit)
+          APP=$(find target/aarch64-apple-darwin/release/bundle/macos -maxdepth 1 -name '*.app' -print -quit)
           test -n "$APP"
           VERSION=$(node -p "require('./apps/codex-plus-manager/package.json').version")
-          hdiutil create -volname "澄流 Codex++" -srcfolder "$APP" -ov -format UDZO "dist-Chengliu-CodexPlusPlus-${VERSION}-macos.dmg"
+          hdiutil create -volname "澄流 Codex++" -srcfolder "$APP" -ov -format UDZO "dist-Chengliu-CodexPlusPlus-${VERSION}-macos-arm64.dmg"
       - uses: actions/upload-artifact@v4
         with:
           name: chengliu-codex-macos
-          path: dist-Chengliu-CodexPlusPlus-*-macos.dmg
+          path: dist-Chengliu-CodexPlusPlus-*-macos-arm64.dmg
   summary:
     if: always()
     needs: [source, windows, macos]

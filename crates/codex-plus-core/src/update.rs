@@ -195,7 +195,7 @@ pub fn select_update_asset(assets: &[(String, String)]) -> Option<ReleaseAsset> 
 }
 
 pub async fn fetch_latest_release(latest_json_url: &str) -> anyhow::Result<Release> {
-    let client = update_http_client()?;
+    let client = update_http_client(latest_json_url)?;
     let payload = client
         .get(latest_json_url)
         .header(reqwest::header::ACCEPT, "application/json")
@@ -230,8 +230,8 @@ fn cache_record(release: &Release, bytes: &[u8]) -> String {
 
 pub async fn check_for_update(current_version: &str) -> anyhow::Result<UpdateCheck> {
     let release = fetch_latest_release(DEFAULT_LATEST_JSON_URL).await?;
-    validate_update_asset(&release)?;
-    let update_available = is_newer_version(&release.version, current_version)?;
+    if release.asset_name.is_some() { validate_update_asset(&release)?; }
+    let update_available = release.asset_name.is_some() && is_newer_version(&release.version, current_version)?;
     Ok(UpdateCheck {
         current_version: current_version.to_string(),
         latest_version: Some(release.version),
@@ -272,15 +272,8 @@ where
         percent: None,
         elapsed_ms: 0,
     });
-    #[cfg(target_os = "macos")]
-    let launch_result = {
-        let path = installer_path.clone();
-        let version = release.version.clone();
-        tokio::task::spawn_blocking(move || macos::launch_update(&path, &version))
-            .await
-            .map_err(|error| anyhow::anyhow!("准备 macOS 自动更新失败：{error}"))?
-    };
-    #[cfg(not(target_os = "macos"))]
+    // Fork DMGs use a different bundle identity from upstream. Open the verified
+    // DMG for manual installation rather than invoking upstream bundle replacement.
     let launch_result = launch_installer(&installer_path);
     if let Err(error) = launch_result {
         let _ = crate::diagnostic_log::append_diagnostic_log(
@@ -329,8 +322,8 @@ where
     Ok(path)
 }
 
-/// 下载完成的标记文件：安装包旁边的 `<安装包>.complete`，内容是安装包字节数。
-/// 只有标记在、且字节数和安装包一致，才算下好了（下到一半退出、或文件被改过都不算）。
+/// 完成标记绑定澄流仓库、版本、附件 URL、字节数和 SHA-256。
+/// 旧版仅含长度的标记及来源或内容不匹配的缓存均不再复用。
 fn completion_marker(path: &Path) -> PathBuf {
     let mut name = path.file_name().map(|name| name.to_os_string()).unwrap_or_default();
     name.push(".complete");
@@ -370,7 +363,7 @@ where
             "downloadTimeoutSeconds": UPDATE_DOWNLOAD_TIMEOUT.as_secs()
         }),
     );
-    let response = match update_http_client()?.get(url).send().await {
+    let response = match update_http_client(url)?.get(url).send().await {
         Ok(response) => response,
         Err(error) => {
             let _ = crate::diagnostic_log::append_diagnostic_log(
@@ -499,14 +492,42 @@ where
     Ok((installer_path, downloaded_bytes, total_bytes))
 }
 
-fn update_http_client() -> anyhow::Result<reqwest::Client> {
-    // 更新与安装包下载同样要走系统代理：在需要代理才能访问 GitHub 的网络里，
-    // 直连会一直超时，用户看到的是「检查更新成功但下载/安装失败」（#1329）。
-    // 复用统一构造器，保留原有连接/总超时语义。
-    crate::http_client::proxied_client_with_timeouts(
-        &format!("Codex++/{}", crate::version::VERSION),
-        UPDATE_CONNECT_TIMEOUT,
-        UPDATE_DOWNLOAD_TIMEOUT,
+fn allowed_update_redirect(url: &reqwest::Url, initial: &reqwest::Url) -> bool {
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some()
+        || url.port_or_known_default() != Some(443) || url.fragment().is_some() {
+        return false;
+    }
+    if url == initial { return true; }
+    match url.host_str() {
+        Some("github.com") if initial.as_str() == DEFAULT_LATEST_JSON_URL => {
+            let parts: Vec<_> = url.path_segments().into_iter().flatten().collect();
+            url.query().is_none() && parts.len() == 6
+                && parts[..4] == ["limohhi", "Chengliu-Codex-Build", "releases", "download"]
+                && !parts[4].is_empty() && parts[5] == "latest.json"
+        }
+        Some("release-assets.githubusercontent.com") => {
+            let parts: Vec<_> = url.path_segments().into_iter().flatten().collect();
+            parts.len() == 3 && parts[0] == "github-production-release-asset"
+                && parts[1] == "1449274808" && !parts[2].is_empty()
+        }
+        _ => false,
+    }
+}
+
+fn update_http_client(target_url: &str) -> anyhow::Result<reqwest::Client> {
+    let initial = reqwest::Url::parse(target_url)?;
+    let policy = reqwest::redirect::Policy::custom(move |attempt| {
+        if attempt.previous().len() >= 6 {
+            attempt.error("更新下载跳转过多")
+        } else if allowed_update_redirect(attempt.url(), &initial) {
+            attempt.follow()
+        } else {
+            attempt.error("拒绝非澄流更新下载重定向")
+        }
+    });
+    crate::http_client::proxied_client_for_url_with_redirect(
+        &format!("Chengliu-Codex++/{}", crate::version::VERSION),
+        target_url, UPDATE_CONNECT_TIMEOUT, UPDATE_DOWNLOAD_TIMEOUT, policy,
     )
 }
 
@@ -606,7 +627,7 @@ fn platform_asset_rank(name: &str) -> u8 {
         if is_macos_native_arch_asset(name) {
             return 0;
         }
-        return 1;
+        return 2;
     }
     if cfg!(windows) && is_windows_installer_asset(name) {
         return 0;
@@ -773,6 +794,27 @@ mod tests {
         download_asset_to(&r, b"fork-package", dir.path()).unwrap();
         std::fs::write(&path, b"evil-package").unwrap();
         assert!(downloaded_installer(&r, dir.path()).is_none());
+    }
+
+    #[test]
+    fn update_redirects_stay_on_fork_and_its_release_cdn() {
+        let initial = reqwest::Url::parse(DEFAULT_LATEST_JSON_URL).unwrap();
+        let trusted = [
+            "https://github.com/limohhi/Chengliu-Codex-Build/releases/download/v2.3.3/latest.json",
+            "https://release-assets.githubusercontent.com/github-production-release-asset/1449274808/test?signature=test",
+        ];
+        for value in trusted {
+            assert!(allowed_update_redirect(&reqwest::Url::parse(value).unwrap(), &initial));
+        }
+        let other_sources = [
+            "https://github.com/BigPizzaV3/CodexPlusPlus/releases/download/v2.4.0/latest.json",
+            "https://release-assets.githubusercontent.com/github-production-release-asset/1230751102/test",
+            "http://release-assets.githubusercontent.com/github-production-release-asset/1449274808/test",
+            "https://example.test/latest.json",
+        ];
+        for value in other_sources {
+            assert!(!allowed_update_redirect(&reqwest::Url::parse(value).unwrap(), &initial));
+        }
     }
 
     #[test]

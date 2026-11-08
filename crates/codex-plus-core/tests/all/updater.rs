@@ -226,7 +226,7 @@ fn downloaded_installer_requires_complete_marker_with_matching_size() {
         url: "https://example.test".to_string(),
         body: "fixes".to_string(),
         asset_name: Some("pkg.dmg".to_string()),
-        asset_url: Some("https://example.test/pkg.dmg".to_string()),
+        asset_url: Some("https://github.com/limohhi/Chengliu-Codex-Build/releases/download/v1.0.9/pkg.dmg".to_string()),
     };
     // 还没下：不算下好。
     assert!(codex_plus_core::update::downloaded_installer(&release, dir.path()).is_none());
