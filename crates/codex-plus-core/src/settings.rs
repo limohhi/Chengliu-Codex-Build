@@ -3719,7 +3719,9 @@ fn normalize_settings_config_sections(mut settings: BackendSettings) -> BackendS
             }
         }
         settings.relay_profiles.retain(|profile| {
-            !legacy_fastai_ids.contains(&profile.id) && promoted_source_id.as_deref() != Some(profile.id.as_str())
+            profile.id == default_active_relay_id()
+                || (!legacy_fastai_ids.contains(&profile.id)
+                    && promoted_source_id.as_deref() != Some(profile.id.as_str()))
         });
         settings.active_relay_id = default_active_relay_id();
         settings.ccs_import_sources.retain(|id, _| !legacy_fastai_ids.contains(id));
