@@ -51,6 +51,8 @@ jobs:
         run: |
           cargo test -p codex-plus-core --lib settings::tests:: -- --test-threads=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test -p codex-plus-core --lib update::tests:: -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test -p codex-plus-manager --lib desktop_pairing::tests -- --test-threads=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build
@@ -83,6 +85,7 @@ jobs:
       - name: Test settings persistence and migration
         run: |
           cargo test -p codex-plus-core --lib settings::tests:: -- --test-threads=1
+          cargo test -p codex-plus-core --lib update::tests:: -- --test-threads=1
           cargo test -p codex-plus-manager --lib desktop_pairing::tests -- --test-threads=1
       - name: Build
         run: |

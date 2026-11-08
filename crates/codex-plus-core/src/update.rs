@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use serde_json::{Value, json};
 
 #[cfg(any(target_os = "macos", test))]
@@ -206,8 +207,30 @@ pub async fn fetch_latest_release(latest_json_url: &str) -> anyhow::Result<Relea
     release_from_latest_json_payload(&payload)
 }
 
+/// Only assets from this fork's exact release tag may enter the updater.
+fn validate_update_asset(release: &Release) -> anyhow::Result<()> {
+    let name = release.asset_name.as_deref().ok_or_else(|| anyhow::anyhow!("缺少澄流更新附件"))?;
+    safe_asset_name(name)?;
+    safe_asset_name(&release.version)?;
+    anyhow::ensure!(!name.contains('\\') && !release.version.contains('\\'), "非法更新路径");
+    let actual = reqwest::Url::parse(release.asset_url.as_deref().unwrap_or_default())?;
+    let mut expected = reqwest::Url::parse("https://github.com/")?;
+    expected.path_segments_mut().unwrap().extend([
+        "limohhi", "Chengliu-Codex-Build", "releases", "download", &release.version, name,
+    ]);
+    anyhow::ensure!(actual == expected, "拒绝非澄流仓库的更新包");
+    Ok(())
+}
+
+fn cache_record(release: &Release, bytes: &[u8]) -> String {
+    json!({"repository": DEFAULT_REPOSITORY, "version": release.version,
+        "asset_url": release.asset_url, "size": bytes.len(),
+        "sha256": format!("{:x}", Sha256::digest(bytes))}).to_string()
+}
+
 pub async fn check_for_update(current_version: &str) -> anyhow::Result<UpdateCheck> {
     let release = fetch_latest_release(DEFAULT_LATEST_JSON_URL).await?;
+    validate_update_asset(&release)?;
     let update_available = is_newer_version(&release.version, current_version)?;
     Ok(UpdateCheck {
         current_version: current_version.to_string(),
@@ -234,6 +257,7 @@ pub async fn perform_update_with_progress<F>(
 where
     F: FnMut(UpdateProgress) + Send,
 {
+    validate_update_asset(release)?;
     // 后台已经下好（「有可用更新时自动下载」）就直接用，不再下载一遍。
     let (installer_path, downloaded_bytes, total_bytes) = match downloaded_installer(release, download_dir) {
         Some((path, bytes)) => (path, bytes, Some(bytes)),
@@ -297,6 +321,7 @@ pub async fn download_update_with_progress<F>(
 where
     F: FnMut(UpdateProgress) + Send,
 {
+    validate_update_asset(release)?;
     if let Some((path, _)) = downloaded_installer(release, download_dir) {
         return Ok(path);
     }
@@ -314,11 +339,13 @@ fn completion_marker(path: &Path) -> PathBuf {
 
 /// 这个版本的安装包是否已经完整下载：返回路径和字节数。
 pub fn downloaded_installer(release: &Release, download_dir: &Path) -> Option<(PathBuf, u64)> {
+    validate_update_asset(release).ok()?;
     let name = release.asset_name.as_ref()?;
     let path = download_dir.join(safe_asset_name(name).ok()?);
-    let expected: u64 = std::fs::read_to_string(completion_marker(&path)).ok()?.trim().parse().ok()?;
-    let actual = std::fs::metadata(&path).ok()?.len();
-    (expected > 0 && expected == actual).then_some((path, actual))
+    let marker = std::fs::read_to_string(completion_marker(&path)).ok()?;
+    let bytes = std::fs::read(&path).ok()?;
+    (!bytes.is_empty() && marker == cache_record(release, &bytes))
+        .then_some((path, bytes.len() as u64))
 }
 
 async fn download_release_asset_with_progress<F>(
@@ -503,7 +530,7 @@ pub fn download_asset_to(
     let partial = path.with_file_name(partial_name);
     std::fs::write(&partial, bytes)?;
     std::fs::rename(&partial, &path)?;
-    std::fs::write(&marker, bytes.len().to_string())?;
+    std::fs::write(&marker, cache_record(release, bytes))?;
     // 历史安装包会一直留在 updates/ 里占磁盘（#2544）：每次下载成功后只保留
     // 最近 `UPDATE_KEEP_INSTALLERS` 个安装包（含本次），其余删除。清理失败
     // 不影响本次更新。
@@ -704,11 +731,49 @@ mod tests {
     fn default_update_source_is_chengliu_release() {
         assert_eq!(DEFAULT_REPOSITORY, "limohhi/Chengliu-Codex-Build");
         assert_eq!(DEFAULT_LATEST_JSON_URL, "https://github.com/limohhi/Chengliu-Codex-Build/releases/latest/download/latest.json");
-        assert!(!is_newer_version("v2.4.0", "2.3.1").unwrap());
+        assert!(is_newer_version("v2.4.0", "2.3.1").unwrap());
         assert!(is_newer_version("v2.3.2", "2.3.1").unwrap());
     }
     use std::net::TcpListener;
     use std::sync::{Arc, Mutex};
+
+    fn trusted_release() -> Release {
+        Release { version: "v2.3.3".into(), url: String::new(), body: String::new(),
+            asset_name: Some("Chengliu-CodexPlusPlus-2.3.3-windows-x64-setup.exe".into()),
+            asset_url: Some("https://github.com/limohhi/Chengliu-Codex-Build/releases/download/v2.3.3/Chengliu-CodexPlusPlus-2.3.3-windows-x64-setup.exe".into()) }
+    }
+
+    #[tokio::test]
+    async fn upstream_updates_are_rejected_before_download_or_launch() {
+        let mut r = trusted_release();
+        let dir = tempfile::tempdir().unwrap();
+        assert!(validate_update_asset(&r).is_ok());
+        for url in [
+            "https://github.com/BigPizzaV3/CodexPlusPlus/releases/download/v2.4.0/CodexPlusPlus-2.4.0-windows-x64-setup.exe",
+            "https://github.com/limohhi/Chengliu-Codex-Build-evil/releases/download/v2.3.3/a.exe",
+            "http://github.com/limohhi/Chengliu-Codex-Build/releases/download/v2.3.3/a.exe",
+            "https://github.com@evil.example/limohhi/Chengliu-Codex-Build/releases/download/v2.3.3/a.exe",
+        ] {
+            r.asset_url = Some(url.into());
+            assert!(validate_update_asset(&r).is_err());
+            assert!(download_update_with_progress(&r, dir.path(), |_| {}).await.is_err());
+            assert!(perform_update_with_progress(&r, dir.path(), |_| {}).await.is_err());
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn legacy_and_modified_cached_installers_are_not_reused() {
+        let r = trusted_release();
+        let dir = tempfile::tempdir().unwrap();
+        let path = download_asset_to(&r, b"fork-package", dir.path()).unwrap();
+        assert!(downloaded_installer(&r, dir.path()).is_some());
+        std::fs::write(completion_marker(&path), "12").unwrap();
+        assert!(downloaded_installer(&r, dir.path()).is_none());
+        download_asset_to(&r, b"fork-package", dir.path()).unwrap();
+        std::fs::write(&path, b"evil-package").unwrap();
+        assert!(downloaded_installer(&r, dir.path()).is_none());
+    }
 
     #[test]
     fn prune_old_installers_keeps_only_recent_installers() {
