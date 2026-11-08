@@ -2,7 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const root = path.resolve(__dirname, '../..');
+let root = __dirname;
+while (root !== path.dirname(root) && !fs.existsSync(path.join(root, 'apps/codex-plus-manager/src-tauri/src/lib.rs'))) root = path.dirname(root);
+if (!fs.existsSync(path.join(root, 'apps/codex-plus-manager/src-tauri/src/lib.rs'))) throw new Error('Could not locate repository root');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 const src = 'apps/codex-plus-manager/';
 
