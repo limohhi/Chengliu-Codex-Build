@@ -46,6 +46,24 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run vite:build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Restore sherpa-onnx archive
+        id: sherpa-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/sherpa-onnx
+          key: sherpa-onnx-1.13.8-Windows-x64-static-v1
+      - name: Prefetch verified sherpa-onnx archive
+        timeout-minutes: 15
+        shell: pwsh
+        run: |
+          python scripts/prefetch-sherpa-onnx.py --target windows-x64 --archive-dir .ci-cache/sherpa-onnx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Save verified sherpa-onnx archive
+        if: steps.sherpa-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .ci-cache/sherpa-onnx
+          key: sherpa-onnx-1.13.8-Windows-x64-static-v1
       - name: Test settings persistence and migration
         shell: pwsh
         run: |
@@ -84,6 +102,21 @@ jobs:
           npm run check
           node --test ../../scripts/tests/chengliu-desktop-config.test.cjs ../../scripts/tests/chengliu-login.test.cjs ../../scripts/tests/chengliu-default-home.test.cjs
           npm run vite:build
+      - name: Restore sherpa-onnx archive
+        id: sherpa-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/sherpa-onnx
+          key: sherpa-onnx-1.13.8-macOS-arm64-static-v1
+      - name: Prefetch verified sherpa-onnx archive
+        timeout-minutes: 15
+        run: python3 scripts/prefetch-sherpa-onnx.py --target macos-arm64 --archive-dir .ci-cache/sherpa-onnx
+      - name: Save verified sherpa-onnx archive
+        if: steps.sherpa-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .ci-cache/sherpa-onnx
+          key: sherpa-onnx-1.13.8-macOS-arm64-static-v1
       - name: Test settings persistence and migration
         run: |
           cargo test -p codex-plus-core --lib settings::tests:: -- --test-threads=1

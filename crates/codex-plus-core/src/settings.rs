@@ -3669,9 +3669,16 @@ fn normalize_settings_config_sections(mut settings: BackendSettings) -> BackendS
         let existing_chengliu = settings.relay_profiles.iter()
             .find(|profile| !legacy_fastai_ids.contains(&profile.id)
                 && (profile.base_url.contains("api.chengliu-api.top")
-                    || profile.upstream_base_url.contains("api.chengliu-api.top")
-                    || profile.name.eq_ignore_ascii_case("澄流平台")))
+                    || profile.upstream_base_url.contains("api.chengliu-api.top")))
             .cloned();
+        let default_already_chengliu = settings.relay_profiles.iter()
+            .find(|profile| profile.id == default_active_relay_id())
+            .is_some_and(|profile| profile.base_url.contains("api.chengliu-api.top")
+                || profile.upstream_base_url.contains("api.chengliu-api.top"));
+        let promoted_source_id = if default_already_chengliu { None } else {
+            existing_chengliu.as_ref().map(|profile| profile.id.clone())
+                .filter(|id| id != &default_active_relay_id())
+        };
         if let Some(default_profile) = settings.relay_profiles.iter_mut()
             .find(|profile| profile.id == default_active_relay_id()) {
             let legacy_default = legacy_fastai_ids.contains(&default_profile.id)
@@ -3691,7 +3698,29 @@ fn normalize_settings_config_sections(mut settings: BackendSettings) -> BackendS
             promoted.name = "澄流平台".to_string();
             settings.relay_profiles.push(promoted);
         }
-        settings.relay_profiles.retain(|profile| !legacy_fastai_ids.contains(&profile.id) || profile.id == default_active_relay_id());
+        if let Some(old_id) = promoted_source_id.as_deref() {
+            for profile in &mut settings.relay_profiles {
+                for route in &mut profile.model_routes {
+                    if route.target_relay_id == old_id { route.target_relay_id = default_active_relay_id(); }
+                }
+            }
+            for aggregate in &mut settings.aggregate_relay_profiles {
+                if aggregate.default_relay_id == old_id { aggregate.default_relay_id = default_active_relay_id(); }
+                if aggregate.auto_review_relay_id == old_id { aggregate.auto_review_relay_id = default_active_relay_id(); }
+                for member in &mut aggregate.members {
+                    if member.relay_id == old_id { member.relay_id = default_active_relay_id(); }
+                }
+                for route in &mut aggregate.routes {
+                    if route.relay_id == old_id { route.relay_id = default_active_relay_id(); }
+                }
+            }
+            if let Some(origin) = settings.ccs_import_sources.remove(old_id) {
+                settings.ccs_import_sources.insert(default_active_relay_id(), origin);
+            }
+        }
+        settings.relay_profiles.retain(|profile| {
+            !legacy_fastai_ids.contains(&profile.id) && promoted_source_id.as_deref() != Some(profile.id.as_str())
+        });
         settings.active_relay_id = default_active_relay_id();
         settings.ccs_import_sources.retain(|id, _| !legacy_fastai_ids.contains(id));
     }

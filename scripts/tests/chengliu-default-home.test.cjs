@@ -24,6 +24,6 @@ test('legacy FastAiApi system default migrates to Chengliu default and is remove
   assert.ok(settings.includes('profile.base_url.contains("fastaiapi.cloud")'));
   assert.ok(settings.includes('profile.upstream_base_url.contains("fastaiapi.cloud")'));
   assert.ok(settings.includes('settings.active_relay_id = default_active_relay_id();'));
-  assert.ok(settings.includes('!legacy_fastai_ids.contains(&profile.id) || profile.id == default_active_relay_id()'));
+  assert.ok(settings.includes('!legacy_fastai_ids.contains(&profile.id) && promoted_source_id.as_deref() != Some(profile.id.as_str())'));
   assert.ok(settings.includes('name: "澄流平台".to_string()'));
 });
