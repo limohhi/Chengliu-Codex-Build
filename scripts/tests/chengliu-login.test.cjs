@@ -38,9 +38,10 @@ test('login screen ships a local logo, layout and honest credential guidance', (
   assert.ok(css.includes('.chengliu-login-panel'));
   const app = read(src + 'src/App.tsx');
   assert.ok(app.includes('<ChengliuLoginScreen'));
-  const pairing = read(src + 'src-tauri/src/desktop_pairing.rs');
-  for (const command of ['desktop_pair_start', 'desktop_pair_poll', 'desktop_pair_cancel']) assert.ok(pairing.includes(command));
-  assert.ok(pairing.includes('https://api.chengliu-api.top/desktop/pairings'));
-  assert.ok(pairing.includes('https://api.chengliu-api.top/desktop/pairings'));
+  const tauri = read(src + 'src-tauri/src/lib.rs');
+  const cargo = read(src + 'src-tauri/Cargo.toml');
+  for (const command of ['desktop_pairing::desktop_pair_start', 'desktop_pairing::desktop_pair_poll', 'desktop_pairing::desktop_pair_cancel']) assert.ok(tauri.includes(command));
+  assert.ok(cargo.includes('reqwest.workspace = true'));
+  assert.ok(cargo.includes('sha2.workspace = true'));
   assert.ok(app.includes('agentFocusOpen && route !== "chengliuLogin"'));
 });
