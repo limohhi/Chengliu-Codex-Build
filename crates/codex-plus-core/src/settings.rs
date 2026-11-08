@@ -3666,6 +3666,12 @@ fn normalize_settings_config_sections(mut settings: BackendSettings) -> BackendS
             || profile.upstream_base_url.contains("fastaiapi.cloud"))
         .map(|profile| profile.id.clone()).collect();
     if !legacy_fastai_ids.is_empty() {
+        let existing_chengliu = settings.relay_profiles.iter()
+            .find(|profile| !legacy_fastai_ids.contains(&profile.id)
+                && (profile.base_url.contains("api.chengliu-api.top")
+                    || profile.upstream_base_url.contains("api.chengliu-api.top")
+                    || profile.name.eq_ignore_ascii_case("澄流平台")))
+            .cloned();
         if let Some(default_profile) = settings.relay_profiles.iter_mut()
             .find(|profile| profile.id == default_active_relay_id()) {
             let legacy_default = legacy_fastai_ids.contains(&default_profile.id)
@@ -3674,10 +3680,16 @@ fn normalize_settings_config_sections(mut settings: BackendSettings) -> BackendS
             let chengliu_default = default_profile.base_url.contains("api.chengliu-api.top")
                 || default_profile.upstream_base_url.contains("api.chengliu-api.top");
             if legacy_default || !chengliu_default {
-                *default_profile = RelayProfile { id: default_active_relay_id(), ..chengliu_default_relay_profile() };
+                let mut promoted = existing_chengliu.unwrap_or_else(chengliu_default_relay_profile);
+                promoted.id = default_active_relay_id();
+                promoted.name = "澄流平台".to_string();
+                *default_profile = promoted;
             } else { default_profile.name = "澄流平台".to_string(); }
         } else {
-            settings.relay_profiles.push(RelayProfile { id: default_active_relay_id(), ..chengliu_default_relay_profile() });
+            let mut promoted = existing_chengliu.unwrap_or_else(chengliu_default_relay_profile);
+            promoted.id = default_active_relay_id();
+            promoted.name = "澄流平台".to_string();
+            settings.relay_profiles.push(promoted);
         }
         settings.relay_profiles.retain(|profile| !legacy_fastai_ids.contains(&profile.id) || profile.id == default_active_relay_id());
         settings.active_relay_id = default_active_relay_id();
@@ -4072,6 +4084,28 @@ mod tests {
         assert!(profile.api_keys.is_empty());
         assert!(profile.active_api_key_id.is_empty());
         assert_eq!(migrated.active_relay_id, default_active_relay_id());
+    }
+
+    #[test]
+    fn legacy_fastai_migration_promotes_existing_chengliu_key() {
+        let mut settings = BackendSettings::default();
+        let mut old = RelayProfile::default();
+        old.id = "default".to_string();
+        old.name = "系统默认".to_string();
+        old.base_url = "https://fastaiapi.cloud/v1".to_string();
+        let mut chengliu = chengliu_default_relay_profile();
+        chengliu.id = "chengliu-old".to_string();
+        chengliu.api_keys = vec![RelayApiKey { id: "keep".to_string(), name: "Keep".to_string(), api_key: "chengliu-key".to_string() }];
+        chengliu.active_api_key_id = "keep".to_string();
+        settings.relay_profiles = vec![old, chengliu];
+        settings.active_relay_id = "default".to_string();
+        let migrated = normalize_settings_config_sections(settings);
+        assert_eq!(migrated.active_relay_id, default_active_relay_id());
+        assert_eq!(migrated.relay_profiles.len(), 1);
+        let active = &migrated.relay_profiles[0];
+        assert_eq!(active.id, default_active_relay_id());
+        assert_eq!(active.base_url, CHENGLIU_API_BASE_URL);
+        assert_eq!(crate::relay_config::relay_profile_api_key(active), "chengliu-key");
     }
 
     #[test]
