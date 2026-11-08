@@ -8,9 +8,9 @@ use serde_json::{Value, json};
 #[cfg(any(target_os = "macos", test))]
 pub mod macos;
 
-pub const DEFAULT_REPOSITORY: &str = "BigPizzaV3/CodexPlusPlus";
+pub const DEFAULT_REPOSITORY: &str = "limohhi/Chengliu-Codex-Build";
 pub const DEFAULT_LATEST_JSON_URL: &str =
-    "https://github.com/BigPizzaV3/CodexPlusPlus/releases/latest/download/latest.json";
+    "https://github.com/limohhi/Chengliu-Codex-Build/releases/latest/download/latest.json";
 const UPDATE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -699,6 +699,14 @@ pub fn launch_installer(path: &Path) -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use std::io::{Read, Write};
+
+    #[test]
+    fn default_update_source_is_chengliu_release() {
+        assert_eq!(DEFAULT_REPOSITORY, "limohhi/Chengliu-Codex-Build");
+        assert_eq!(DEFAULT_LATEST_JSON_URL, "https://github.com/limohhi/Chengliu-Codex-Build/releases/latest/download/latest.json");
+        assert!(!is_newer_version("v2.4.0", "2.3.1").unwrap());
+        assert!(is_newer_version("v2.3.2", "2.3.1").unwrap());
+    }
     use std::net::TcpListener;
     use std::sync::{Arc, Mutex};
 
