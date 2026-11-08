@@ -39,18 +39,26 @@ jobs:
         run: |
           cd apps/codex-plus-manager
           npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test ../../scripts/tests/chengliu-desktop-config.test.cjs ../../scripts/tests/chengliu-login.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run vite:build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test settings persistence and migration
+        shell: pwsh
         run: |
           cargo test -p codex-plus-core --lib settings::tests:: -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test -p codex-plus-manager --lib desktop_pairing::tests -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build
         shell: pwsh
         run: |
           cd apps/codex-plus-manager
-          npm ci
           npm run build -- --config src-tauri/tauri.chengliu.windows.conf.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: chengliu-codex-windows
@@ -71,6 +79,7 @@ jobs:
           npm ci
           npm run check
           node --test ../../scripts/tests/chengliu-desktop-config.test.cjs ../../scripts/tests/chengliu-login.test.cjs
+          npm run vite:build
       - name: Test settings persistence and migration
         run: |
           cargo test -p codex-plus-core --lib settings::tests:: -- --test-threads=1
