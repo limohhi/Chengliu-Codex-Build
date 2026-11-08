@@ -3660,16 +3660,30 @@ fn normalize_settings_config_sections(mut settings: BackendSettings) -> BackendS
     settings.relay_context_config_contents = crate::relay_config::strip_legacy_skill_tables(
         &crate::relay_config::normalize_config_text(&context),
     );
-    for profile in &mut settings.relay_profiles {
-        if profile.name.eq_ignore_ascii_case("FastAiApi")
-        {
-            // 换平台不能继承旧认证/请求头/配置快照。保留 ID 以维持外部绑定，
-            // 但以新名称避免下次加载再次迁移、抹掉用户新填的澄流 Key。
-            *profile = RelayProfile {
-                id: profile.id.clone(),
-                ..chengliu_default_relay_profile()
-            };
+    let legacy_fastai_ids: Vec<String> = settings.relay_profiles.iter()
+        .filter(|profile| profile.name.eq_ignore_ascii_case("FastAiApi")
+            || profile.base_url.contains("fastaiapi.cloud")
+            || profile.upstream_base_url.contains("fastaiapi.cloud"))
+        .map(|profile| profile.id.clone()).collect();
+    if !legacy_fastai_ids.is_empty() {
+        if let Some(default_profile) = settings.relay_profiles.iter_mut()
+            .find(|profile| profile.id == default_active_relay_id()) {
+            let legacy_default = legacy_fastai_ids.contains(&default_profile.id)
+                || default_profile.base_url.contains("fastaiapi.cloud")
+                || default_profile.upstream_base_url.contains("fastaiapi.cloud");
+            let chengliu_default = default_profile.base_url.contains("api.chengliu-api.top")
+                || default_profile.upstream_base_url.contains("api.chengliu-api.top");
+            if legacy_default || !chengliu_default {
+                *default_profile = RelayProfile { id: default_active_relay_id(), ..chengliu_default_relay_profile() };
+            } else { default_profile.name = "澄流平台".to_string(); }
+        } else {
+            settings.relay_profiles.push(RelayProfile { id: default_active_relay_id(), ..chengliu_default_relay_profile() });
         }
+        settings.relay_profiles.retain(|profile| !legacy_fastai_ids.contains(&profile.id) || profile.id == default_active_relay_id());
+        settings.active_relay_id = default_active_relay_id();
+        settings.ccs_import_sources.retain(|id, _| !legacy_fastai_ids.contains(id));
+    }
+    for profile in &mut settings.relay_profiles {
         let mut normalized = profile.clone();
         if crate::relay_config::normalize_relay_profile_for_storage(&mut normalized).is_ok() {
             *profile = normalized;
@@ -3988,10 +4002,10 @@ mod tests {
         let path = dir.path().join("settings.json");
         // Isolated synthetic fixture; no real credentials or account records.
         let legacy = json!({
-            "activeRelayId": "fastaiapi",
+            "activeRelayId": "default",
             "relayProfiles": [{
-                "id": "fastaiapi", "name": "FastAiApi", "relayMode": "pureApi",
-                "upstreamBaseUrl": "https://old.invalid/v1",
+                "id": "default", "name": "系统默认", "relayMode": "pureApi",
+                "upstreamBaseUrl": "https://fastaiapi.cloud/v1",
                 "apiKeys": [{"id":"old", "name":"Old", "apiKey":"synthetic-old-key"}],
                 "activeApiKeyId": "old",
                 "configContents": "model_provider = \"custom\"\n[model_providers.custom]\nname = \"Old\"\nbase_url = \"https://old.invalid/v1\"\nwire_api = \"responses\"\nexperimental_bearer_token = \"synthetic-old-key\"\n",
@@ -4002,8 +4016,10 @@ mod tests {
         std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
         let store = SettingsStore::new(path);
         let mut loaded = store.load().unwrap();
+        assert_eq!(loaded.active_relay_id, default_active_relay_id());
+        assert_eq!(loaded.relay_profiles.len(), 1);
         let profile = &mut loaded.relay_profiles[0];
-        assert_eq!(profile.id, "fastaiapi");
+        assert_eq!(profile.id, default_active_relay_id());
         assert_eq!(profile.name, "澄流平台");
         assert_eq!(profile.base_url, CHENGLIU_API_BASE_URL);
         assert_eq!(profile.relay_mode, RelayMode::PureApi);
@@ -4018,7 +4034,7 @@ mod tests {
         profile.active_api_key_id = "new".to_string();
         store.save(&loaded).unwrap();
         let mut second = store.load().unwrap();
-        assert_eq!(second.active_relay_id, "fastaiapi");
+        assert_eq!(second.active_relay_id, default_active_relay_id());
         assert_eq!(crate::relay_config::relay_profile_api_key(&second.relay_profiles[0]), "synthetic-new-key");
         second.relay_profiles[0].name = "My Chengliu".to_string();
         store.save(&second).unwrap();
@@ -4045,15 +4061,17 @@ mod tests {
         settings.active_relay_id = "fastaiapi".to_string();
 
         let migrated = normalize_settings_config_sections(settings);
+        assert_eq!(migrated.active_relay_id, default_active_relay_id());
+        assert_eq!(migrated.relay_profiles.len(), 1);
         let profile = &migrated.relay_profiles[0];
-        assert_eq!(profile.id, "fastaiapi");
+        assert_eq!(profile.id, default_active_relay_id());
         assert_eq!(profile.name, "澄流平台");
         assert_eq!(profile.base_url, "https://api.chengliu-api.top/v1");
         assert_eq!(profile.protocol, RelayProtocol::Responses);
         assert!(profile.api_key.is_empty());
         assert!(profile.api_keys.is_empty());
         assert!(profile.active_api_key_id.is_empty());
-        assert_eq!(migrated.active_relay_id, "fastaiapi");
+        assert_eq!(migrated.active_relay_id, default_active_relay_id());
     }
 
     #[test]

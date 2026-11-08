@@ -42,7 +42,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --test ../../scripts/tests/chengliu-desktop-config.test.cjs ../../scripts/tests/chengliu-login.test.cjs
+          node --test ../../scripts/tests/chengliu-desktop-config.test.cjs ../../scripts/tests/chengliu-login.test.cjs ../../scripts/tests/chengliu-default-home.test.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run vite:build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -82,7 +82,7 @@ jobs:
           cd apps/codex-plus-manager
           npm ci
           npm run check
-          node --test ../../scripts/tests/chengliu-desktop-config.test.cjs ../../scripts/tests/chengliu-login.test.cjs
+          node --test ../../scripts/tests/chengliu-desktop-config.test.cjs ../../scripts/tests/chengliu-login.test.cjs ../../scripts/tests/chengliu-default-home.test.cjs
           npm run vite:build
       - name: Test settings persistence and migration
         run: |

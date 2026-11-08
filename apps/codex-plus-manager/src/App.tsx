@@ -11127,6 +11127,19 @@ function HomeScreen({
         </CxCard>
       </CxSection>
 
+      <CxSection title={t("平台") }>
+        <CxCard>
+          <CxRow
+            detail={t("默认 API 平台 · 账号连接与密钥设置")}
+            icon={<CxStatusIcon tone="ok"><Server /></CxStatusIcon>}
+            onClick={() => onNavigate("chengliuLogin")}
+            title={t("澄流平台")}
+          >
+            <ChevronRight aria-hidden="true" className="cx-set-chevron" />
+          </CxRow>
+        </CxCard>
+      </CxSection>
+
       <CxSection title={t("常用")}>
         <div className="home-shortcuts">
           {shortcuts.filter((item) => routeVisible(focus, item.route)).map((item) => {

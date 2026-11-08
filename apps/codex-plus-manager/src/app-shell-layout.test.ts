@@ -362,6 +362,9 @@ test("首页只展示本地状态与常用入口，不加载赞助或广告", ()
   assert.match(functionSource("AppSidebar"), /\{ key: "home", route: "home", label: t\("首页"\), icon: House, match: \["home"\] \},/);
   const home = functionSource("HomeScreen");
   assert.match(home, /title=\{t\("状态"\)\}/);
+  assert.match(home, /title=\{t\("平台"\)\}/);
+  assert.match(home, /title=\{t\("澄流平台"\)\}/);
+  assert.match(home, /onClick=\{\(\) => onNavigate\("chengliuLogin"\)\}/);
   assert.match(home, /title=\{t\("常用"\)\}/);
   assert.match(home, /shortcuts\.filter\(\(item\) => routeVisible\(focus, item\.route\)\)/);
 });
