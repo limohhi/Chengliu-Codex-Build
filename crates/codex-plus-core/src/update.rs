@@ -14,6 +14,26 @@ pub const DEFAULT_LATEST_JSON_URL: &str =
     "https://github.com/limohhi/Chengliu-Codex-Build/releases/latest/download/latest.json";
 const UPDATE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
+// 允许现有桌面安装包大小，同时给响应正文和本地缓存设置硬上限。
+const MAX_UPDATE_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_UPDATE_METADATA_BYTES: u64 = 1024 * 1024;
+
+fn read_bounded_file(path: &Path, limit: u64) -> anyhow::Result<Vec<u8>> {
+    use std::io::Read;
+    let file = std::fs::File::open(path)?;
+    anyhow::ensure!(file.metadata()?.len() <= limit, "更新文件超过大小上限");
+    let mut bytes = Vec::new();
+    file.take(limit + 1).read_to_end(&mut bytes)?;
+    anyhow::ensure!(bytes.len() as u64 <= limit, "更新文件超过大小上限");
+    Ok(bytes)
+}
+
+fn checked_update_size(current: u64, additional: u64, limit: u64) -> anyhow::Result<u64> {
+    let size = current.checked_add(additional)
+        .ok_or_else(|| anyhow::anyhow!("更新文件大小溢出"))?;
+    anyhow::ensure!(size <= limit, "更新文件超过大小上限（{limit} 字节）");
+    Ok(size)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReleaseAsset {
@@ -196,15 +216,69 @@ pub fn select_update_asset(assets: &[(String, String)]) -> Option<ReleaseAsset> 
 
 pub async fn fetch_latest_release(latest_json_url: &str) -> anyhow::Result<Release> {
     let client = update_http_client(latest_json_url)?;
-    let payload = client
+    let response = client
         .get(latest_json_url)
         .header(reqwest::header::ACCEPT, "application/json")
         .send()
         .await?
-        .error_for_status()?
-        .json::<Value>()
-        .await?;
-    release_from_latest_json_payload(&payload)
+        .error_for_status()?;
+    if let Some(size) = response.content_length() {
+        checked_update_size(0, size, MAX_UPDATE_METADATA_BYTES)?;
+    }
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        checked_update_size(bytes.len() as u64, chunk.len() as u64, MAX_UPDATE_METADATA_BYTES)?;
+        bytes.extend_from_slice(&chunk);
+    }
+    release_from_latest_json_payload(&serde_json::from_slice::<Value>(&bytes)?)
+}
+
+// 不信任 caller 自选的历史版本、附件或发布说明；每次下载/安装都重新获取固定源。
+async fn resolve_update_release(requested: &Release) -> anyhow::Result<Release> {
+    resolve_update_release_with(requested, crate::version::VERSION, || {
+        fetch_latest_release(DEFAULT_LATEST_JSON_URL)
+    }).await
+}
+
+// 私有注入点仅供测试替代元数据请求；生产入口始终使用上面的固定源。
+async fn resolve_update_release_with<F, Fut>(
+    requested: &Release,
+    current: &str,
+    fetch_latest: F,
+) -> anyhow::Result<Release>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<Release>>,
+{
+    validate_update_candidate(requested, current)?;
+    let latest = fetch_latest().await?;
+    validate_requested_release(requested, &latest, current)?;
+    Ok(latest)
+}
+
+fn validate_update_candidate(release: &Release, current: &str) -> anyhow::Result<()> {
+    validate_update_asset(release)?;
+    // 更新安装仅接受稳定三段版本，避免宽松展示解析器将垃圾后缀当成有效新版本。
+    for version in [&release.version[..], current] {
+        let normalized = version.strip_prefix('v').or_else(|| version.strip_prefix('V')).unwrap_or(version);
+        let parts: Vec<_> = normalized.split('.').collect();
+        anyhow::ensure!(parts.len() == 3 && parts.iter().all(|part|
+            !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())
+                && (part.len() == 1 || !part.starts_with('0'))), "非法更新版本");
+    }
+    anyhow::ensure!(is_newer_version(&release.version, current)?, "更新版本必须高于当前版本");
+    Ok(())
+}
+
+fn validate_requested_release(requested: &Release, latest: &Release, current: &str) -> anyhow::Result<()> {
+    validate_update_candidate(requested, current)?;
+    validate_update_candidate(latest, current)?;
+    anyhow::ensure!(requested.version == latest.version
+        && requested.asset_name == latest.asset_name && requested.asset_url == latest.asset_url,
+        "更新检查结果已变化，请重新检查更新");
+    Ok(())
 }
 
 /// Only assets from this fork's exact release tag may enter the updater.
@@ -232,6 +306,7 @@ pub async fn check_for_update(current_version: &str) -> anyhow::Result<UpdateChe
     let release = fetch_latest_release(DEFAULT_LATEST_JSON_URL).await?;
     if release.asset_name.is_some() { validate_update_asset(&release)?; }
     let update_available = release.asset_name.is_some() && is_newer_version(&release.version, current_version)?;
+    if update_available { validate_update_candidate(&release, current_version)?; }
     Ok(UpdateCheck {
         current_version: current_version.to_string(),
         latest_version: Some(release.version),
@@ -257,7 +332,8 @@ pub async fn perform_update_with_progress<F>(
 where
     F: FnMut(UpdateProgress) + Send,
 {
-    validate_update_asset(release)?;
+    let release = resolve_update_release(release).await?;
+    let release = &release;
     // 后台已经下好（「有可用更新时自动下载」）就直接用，不再下载一遍。
     let (installer_path, downloaded_bytes, total_bytes) = match downloaded_installer(release, download_dir) {
         Some((path, bytes)) => (path, bytes, Some(bytes)),
@@ -272,8 +348,9 @@ where
         percent: None,
         elapsed_ms: 0,
     });
-    // Fork DMGs use a different bundle identity from upstream. Open the verified
+    // Fork DMGs use a different bundle identity from upstream. Open the downloaded
     // DMG for manual installation rather than invoking upstream bundle replacement.
+    // 来源与本地缓存摘要检查不等于发布者签名验签；签名与公钥迁移仍需发布流程设计。
     let launch_result = launch_installer(&installer_path);
     if let Err(error) = launch_result {
         let _ = crate::diagnostic_log::append_diagnostic_log(
@@ -314,7 +391,8 @@ pub async fn download_update_with_progress<F>(
 where
     F: FnMut(UpdateProgress) + Send,
 {
-    validate_update_asset(release)?;
+    let release = resolve_update_release(release).await?;
+    let release = &release;
     if let Some((path, _)) = downloaded_installer(release, download_dir) {
         return Ok(path);
     }
@@ -335,8 +413,8 @@ pub fn downloaded_installer(release: &Release, download_dir: &Path) -> Option<(P
     validate_update_asset(release).ok()?;
     let name = release.asset_name.as_ref()?;
     let path = download_dir.join(safe_asset_name(name).ok()?);
-    let marker = std::fs::read_to_string(completion_marker(&path)).ok()?;
-    let bytes = std::fs::read(&path).ok()?;
+    let marker = String::from_utf8(read_bounded_file(&completion_marker(&path), 16 * 1024).ok()?).ok()?;
+    let bytes = read_bounded_file(&path, MAX_UPDATE_BYTES).ok()?;
     (!bytes.is_empty() && marker == cache_record(release, &bytes))
         .then_some((path, bytes.len() as u64))
 }
@@ -345,6 +423,18 @@ async fn download_release_asset_with_progress<F>(
     release: &Release,
     download_dir: &Path,
     on_progress: &mut F,
+) -> anyhow::Result<(PathBuf, u64, Option<u64>)>
+where
+    F: FnMut(UpdateProgress),
+{
+    download_release_asset_with_limit(release, download_dir, on_progress, MAX_UPDATE_BYTES).await
+}
+
+async fn download_release_asset_with_limit<F>(
+    release: &Release,
+    download_dir: &Path,
+    on_progress: &mut F,
+    size_limit: u64,
 ) -> anyhow::Result<(PathBuf, u64, Option<u64>)>
 where
     F: FnMut(UpdateProgress),
@@ -394,9 +484,11 @@ where
         }
     };
 
-    // 用流式读取替代 response.bytes()，让 UI 能拿到真实下载字节数；
-    // 仍先把完整安装包收集到内存，写盘行为与旧实现保持一致。
+    // 保留现有原子写盘流程；正文入缓冲前检查累计硬上限，不信任 Content-Length。
     let total_bytes = response.content_length();
+    if let Some(size) = total_bytes {
+        checked_update_size(0, size, size_limit)?;
+    }
     on_progress(UpdateProgress {
         stage: UpdateStage::Downloading,
         downloaded_bytes: 0,
@@ -425,7 +517,7 @@ where
                 return Err(anyhow::anyhow!("读取安装包失败：{error}"));
             }
         };
-        downloaded_bytes += chunk.len() as u64;
+        downloaded_bytes = checked_update_size(downloaded_bytes, chunk.len() as u64, size_limit)?;
         bytes.extend_from_slice(&chunk);
         let percent = total_bytes
             .filter(|total| *total > 0)
@@ -443,6 +535,8 @@ where
             });
         }
     }
+    anyhow::ensure!(!bytes.is_empty(), "更新安装包为空");
+    anyhow::ensure!(total_bytes.is_none_or(|total| total == downloaded_bytes), "更新安装包长度不匹配");
     let _ = crate::diagnostic_log::append_diagnostic_log(
         "update.download.completed",
         json!({
@@ -514,6 +608,15 @@ fn allowed_update_redirect(url: &reqwest::Url, initial: &reqwest::Url) -> bool {
     }
 }
 
+#[cfg(test)]
+fn initial_loopback_url(target_url: &str) -> bool {
+    reqwest::Url::parse(target_url).ok().is_some_and(|url| {
+        url.scheme() == "http" && url.host_str().is_some_and(|host| {
+            host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+        })
+    })
+}
+
 fn update_http_client(target_url: &str) -> anyhow::Result<reqwest::Client> {
     let initial = reqwest::Url::parse(target_url)?;
     let policy = reqwest::redirect::Policy::custom(move |attempt| {
@@ -525,6 +628,17 @@ fn update_http_client(target_url: &str) -> anyhow::Result<reqwest::Client> {
             attempt.error("拒绝非澄流更新下载重定向")
         }
     });
+    // 单元测试只让本机 HTTP fixture 直连，避免宿主代理/证书设置污染测试。
+    // 非测试构建没有此分支，也不放宽生产重定向白名单。
+    #[cfg(test)]
+    if initial_loopback_url(target_url) {
+        return Ok(reqwest::Client::builder()
+            .no_proxy()
+            .connect_timeout(UPDATE_CONNECT_TIMEOUT)
+            .timeout(Duration::from_secs(5))
+            .redirect(policy)
+            .build()?);
+    }
     crate::http_client::proxied_client_for_url_with_redirect(
         &format!("Chengliu-Codex++/{}", crate::version::VERSION),
         target_url, UPDATE_CONNECT_TIMEOUT, UPDATE_DOWNLOAD_TIMEOUT, policy,
@@ -536,6 +650,7 @@ pub fn download_asset_to(
     bytes: &[u8],
     download_dir: &Path,
 ) -> anyhow::Result<PathBuf> {
+    checked_update_size(0, bytes.len() as u64, MAX_UPDATE_BYTES)?;
     let name = release
         .asset_name
         .as_ref()
@@ -764,6 +879,98 @@ mod tests {
             asset_url: Some("https://github.com/limohhi/Chengliu-Codex-Build/releases/download/v2.3.3/Chengliu-CodexPlusPlus-2.3.3-windows-x64-setup.exe".into()) }
     }
 
+    #[test]
+    fn update_candidate_requires_a_strictly_newer_stable_version() {
+        let mut release = trusted_release();
+        for version in ["v2.3.3", "v2.3.4", "v2.3.5-beta.1", "v2.3.5garbage", "vv2.3.5", "v02.3.5", "v2.3.5.1"] {
+            release.version = version.into();
+            release.asset_url = Some(format!("https://github.com/{DEFAULT_REPOSITORY}/releases/download/{version}/{}", release.asset_name.as_ref().unwrap()));
+            assert!(validate_update_candidate(&release, "2.3.4").is_err(), "{version}");
+        }
+        release.version = "v2.3.5".into();
+        release.asset_url = Some(format!("https://github.com/{DEFAULT_REPOSITORY}/releases/download/v2.3.5/{}", release.asset_name.as_ref().unwrap()));
+        assert!(validate_update_candidate(&release, "2.3.4").is_ok());
+    }
+
+    #[test]
+    fn caller_release_must_match_latest_fixed_source_asset() {
+        let latest = trusted_release();
+        assert!(validate_requested_release(&latest, &latest, "2.3.2").is_ok());
+        let mut requested = latest.clone();
+        requested.asset_name = Some("other.exe".into());
+        requested.asset_url = Some(format!("https://github.com/{DEFAULT_REPOSITORY}/releases/download/v2.3.3/other.exe"));
+        assert!(validate_update_asset(&requested).is_ok());
+        assert!(validate_requested_release(&requested, &latest, "2.3.2").is_err());
+        assert!(validate_requested_release(&latest, &latest, "2.3.3").is_err());
+    }
+
+    #[tokio::test]
+    async fn fixed_source_resolution_rechecks_latest_and_uses_its_metadata() {
+        let requested = trusted_release();
+        let mut latest = requested.clone();
+        latest.body = "fixed-source notes".into();
+        latest.url = "https://github.com/limohhi/Chengliu-Codex-Build/releases/tag/v2.3.3".into();
+        let resolved = resolve_update_release_with(&requested, "2.3.2", || async {
+            Ok(latest.clone())
+        }).await.unwrap();
+        assert_eq!(resolved, latest);
+        let mut changed = latest.clone();
+        changed.asset_name = Some("changed.exe".into());
+        changed.asset_url = Some(format!("https://github.com/{DEFAULT_REPOSITORY}/releases/download/v2.3.3/changed.exe"));
+        assert!(resolve_update_release_with(&requested, "2.3.2", || async {
+            Ok(changed)
+        }).await.is_err());
+        assert!(resolve_update_release_with(&requested, "2.3.3", || async {
+            panic!("同版本必须在获取元数据前拒绝")
+        }).await.is_err());
+        assert!(resolve_update_release_with(&requested, "2.3.2", || async {
+            anyhow::bail!("offline fixture")
+        }).await.unwrap_err().to_string().contains("offline fixture"));
+    }
+
+    #[test]
+    fn test_http_fixtures_are_limited_to_loopback_ips() {
+        assert!(initial_loopback_url("http://127.0.0.1:1234/installer.exe"));
+        for url in ["http://192.0.2.1/", "http://localhost.example/", "https://github.com/"] {
+            assert!(!initial_loopback_url(url), "{url}");
+        }
+    }
+
+    #[tokio::test]
+    async fn downgrade_and_same_version_never_download_or_launch() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut release = trusted_release();
+        for version in ["v0.0.1".to_string(), format!("v{}", crate::version::VERSION)] {
+            release.version = version.clone();
+            release.asset_url = Some(format!("https://github.com/{DEFAULT_REPOSITORY}/releases/download/{version}/{}", release.asset_name.as_ref().unwrap()));
+            assert!(download_update_with_progress(&release, dir.path(), |_| {}).await.is_err());
+            assert!(perform_update_with_progress(&release, dir.path(), |_| {}).await.is_err());
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn download_limit_checks_declared_and_cumulative_sizes_before_append() {
+        assert!(checked_update_size(0, MAX_UPDATE_BYTES + 1, MAX_UPDATE_BYTES).is_err());
+        assert_eq!(checked_update_size(MAX_UPDATE_BYTES - 2, 2, MAX_UPDATE_BYTES).unwrap(), MAX_UPDATE_BYTES);
+        assert!(checked_update_size(MAX_UPDATE_BYTES - 2, 3, MAX_UPDATE_BYTES).is_err());
+        assert!(checked_update_size(u64::MAX, 1, u64::MAX).is_err());
+    }
+
+    #[test]
+    fn oversized_cache_and_marker_are_not_reused() {
+        let release = trusted_release();
+        let dir = tempfile::tempdir().unwrap();
+        let path = download_asset_to(&release, b"package", dir.path()).unwrap();
+        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(MAX_UPDATE_BYTES + 1).unwrap();
+        assert!(downloaded_installer(&release, dir.path()).is_none());
+        download_asset_to(&release, b"package", dir.path()).unwrap();
+        let file = std::fs::OpenOptions::new().write(true).open(completion_marker(&path)).unwrap();
+        file.set_len(16 * 1024 + 1).unwrap();
+        assert!(downloaded_installer(&release, dir.path()).is_none());
+    }
+
     #[tokio::test]
     async fn upstream_updates_are_rejected_before_download_or_launch() {
         let mut r = trusted_release();
@@ -858,6 +1065,33 @@ mod tests {
             remaining.iter().any(|name| name == "notes.txt"),
             "非安装包文件不得删除：{remaining:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn oversized_http_responses_never_write_an_installer() {
+        // 覆盖声明长度、无 Content-Length 和分块传输；测试只传几十字节。
+        for response in [
+            "HTTP/1.1 200 OK\r\nContent-Length: 33\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n01234567890123456789012345678901234",
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n10\r\n0123456789012345\r\n11\r\n01234567890123456\r\n0\r\n\r\n",
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0_u8; 2048];
+                let _ = stream.read(&mut request);
+                let _ = stream.write_all(response.as_bytes());
+            });
+            let mut release = trusted_release();
+            release.asset_url = Some(format!("http://{address}/installer.exe"));
+            let dir = tempfile::tempdir().unwrap();
+            let error = download_release_asset_with_limit(&release, dir.path(), &mut |_| {}, 32)
+                .await.unwrap_err();
+            assert!(error.to_string().contains("大小上限"), "{error}");
+            server.join().unwrap();
+            assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+        }
     }
 
     #[tokio::test]

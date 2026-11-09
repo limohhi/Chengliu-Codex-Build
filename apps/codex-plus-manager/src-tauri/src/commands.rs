@@ -8456,12 +8456,30 @@ pub fn export_settings(path: String, settings: BackendSettings) -> CommandResult
     }
 }
 
+const MAX_SETTINGS_IMPORT_BYTES: u64 = 8 * 1024 * 1024;
+
+fn read_settings_import(path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+    let file = fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    anyhow::ensure!(metadata.is_file(), "配置导入路径必须是普通文件。");
+    anyhow::ensure!(metadata.len() <= MAX_SETTINGS_IMPORT_BYTES, "配置导入文件超过 8 MiB 上限。");
+    // 同一文件句柄限量读取，避免 metadata 检查后文件增长导致无限分配。
+    read_settings_import_bytes(file)
+}
+
+fn read_settings_import_bytes(reader: impl std::io::Read) -> anyhow::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    reader.take(MAX_SETTINGS_IMPORT_BYTES + 1).read_to_end(&mut bytes)?;
+    anyhow::ensure!(bytes.len() as u64 <= MAX_SETTINGS_IMPORT_BYTES, "配置导入文件超过 8 MiB 上限。");
+    Ok(bytes)
+}
+
 #[tauri::command]
 pub fn preview_import_settings(path: String) -> CommandResult<SettingsPayload> {
     let path = PathBuf::from(path.trim());
-    let bytes = match fs::read(&path) {
-        Ok(bytes) if bytes.len() <= 8 * 1024 * 1024 => bytes,
-        Ok(_) => return failed("配置导入文件超过 8 MiB 上限。", fallback_settings_payload()),
+    let bytes = match read_settings_import(&path) {
+        Ok(bytes) => bytes,
         Err(error) => {
             return failed(
                 &format!("读取配置导入文件失败：{error}"),
@@ -11746,6 +11764,45 @@ base_url = "https://example.invalid/v1"
 
         assert_eq!(result.status, "failed");
         assert!(result.message.contains("请先检查更新"));
+    }
+
+    #[test]
+    fn update_install_rejects_same_version_before_any_progress() {
+        let version = format!("v{}", codex_plus_core::version::VERSION);
+        let release = codex_plus_core::update::Release {
+            version: version.clone(), url: String::new(), body: String::new(),
+            asset_name: Some("test-setup.exe".into()),
+            asset_url: Some(format!("https://github.com/{}/releases/download/{version}/test-setup.exe",
+                codex_plus_core::update::DEFAULT_REPOSITORY)),
+        };
+        let result = tauri::async_runtime::block_on(perform_update_inner(Some(release), |_| {
+            panic!("同版本更新不得开始下载或启动安装器");
+        }));
+        assert_eq!(result.status, "failed");
+        assert!(result.message.contains("必须高于当前版本"));
+    }
+
+    #[test]
+    fn settings_import_checks_metadata_and_accepts_exact_limit() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("import.json");
+        fs::write(&path, b"{}").unwrap();
+        assert_eq!(read_settings_import(&path).unwrap(), b"{}");
+        let file = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(MAX_SETTINGS_IMPORT_BYTES).unwrap();
+        assert_eq!(read_settings_import(&path).unwrap().len() as u64, MAX_SETTINGS_IMPORT_BYTES);
+        file.set_len(MAX_SETTINGS_IMPORT_BYTES + 1).unwrap();
+        assert!(read_settings_import(&path).unwrap_err().to_string().contains("8 MiB"));
+        assert!(read_settings_import(temp.path()).is_err());
+    }
+
+    #[test]
+    fn settings_import_bounds_stream_even_without_reliable_metadata() {
+        use std::io::Read;
+        let mut source = std::io::repeat(b'x').take(MAX_SETTINGS_IMPORT_BYTES * 2);
+        assert!(read_settings_import_bytes(&mut source).is_err());
+        // 最多只读上限 + 1；模拟检查 metadata 后源文件继续增长。
+        assert_eq!(source.limit(), MAX_SETTINGS_IMPORT_BYTES - 1);
     }
 
     #[test]

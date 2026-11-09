@@ -63,6 +63,8 @@ jobs:
           cd apps/codex-plus-manager
           npm ci
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --experimental-strip-types --test src/update-flow.test.ts src/update-notification.test.ts src/state-updater-event.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test ../../scripts/tests/chengliu-desktop-config.test.cjs ../../scripts/tests/chengliu-login.test.cjs ../../scripts/tests/chengliu-default-home.test.cjs
@@ -94,6 +96,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test -p codex-plus-core --lib update::tests:: -- --test-threads=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test -p codex-plus-manager --lib commands::tests::settings_import_ -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test -p codex-plus-manager --lib commands::tests::update_install_rejects_same_version_before_any_progress -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test -p codex-plus-manager --lib desktop_pairing::tests -- --test-threads=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build
@@ -122,6 +128,7 @@ jobs:
         run: |
           cd apps/codex-plus-manager
           npm ci
+          node --experimental-strip-types --test src/update-flow.test.ts src/update-notification.test.ts src/state-updater-event.test.ts
           npm run check
           node --test ../../scripts/tests/chengliu-desktop-config.test.cjs ../../scripts/tests/chengliu-login.test.cjs ../../scripts/tests/chengliu-default-home.test.cjs
           npm run vite:build
@@ -144,6 +151,8 @@ jobs:
         run: |
           cargo test -p codex-plus-core --lib settings::tests:: -- --test-threads=1
           cargo test -p codex-plus-core --lib update::tests:: -- --test-threads=1
+          cargo test -p codex-plus-manager --lib commands::tests::settings_import_ -- --test-threads=1
+          cargo test -p codex-plus-manager --lib commands::tests::update_install_rejects_same_version_before_any_progress -- --test-threads=1
           cargo test -p codex-plus-manager --lib desktop_pairing::tests -- --test-threads=1
       - name: Build
         run: |
